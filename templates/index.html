@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AAC Copilot</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<!-- ── Top nav ──────────────────────────────────────────────────────────────── -->
+<nav class="top-nav" id="top-nav" style="display:none;">
+  <span class="nav-brand">AAC Copilot</span>
+  <button class="nav-btn" data-screen="conversation" onclick="showScreen('conversation')">Live</button>
+  <button class="nav-btn" data-screen="people" onclick="showScreen('people')">People</button>
+  <button class="nav-btn" data-screen="memories" onclick="showScreen('memories')">Memories</button>
+  <button class="nav-btn" data-screen="history" onclick="showScreen('history')">History</button>
+  <button class="nav-btn" data-screen="plans" onclick="showScreen('plans')">Plans</button>
+  <button class="nav-btn" data-screen="settings" onclick="showScreen('settings')">Settings</button>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SETUP SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen active" id="screen-setup">
+  <div class="setup-card">
+    <h1>Start a Conversation</h1>
+    <p class="subtitle">Set up who is here and where you are before recording starts.</p>
+
+    <div class="field">
+      <label>Location</label>
+      <div style="display:flex;gap:8px;">
+        <select id="setup-location-select" style="flex:1;" onchange="onLocationSelect()">
+          <option value="">— choose a location —</option>
+        </select>
+        <input type="text" id="setup-location-new" placeholder="or type a new place…" style="flex:1;" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>People Present</label>
+      <div class="people-selector" id="setup-people-selector"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input type="text" id="setup-new-person-input" placeholder="Add a new person…" style="flex:1;" onkeydown="if(event.key==='Enter')addPersonFromSetup()" />
+        <button class="btn-add" onclick="addPersonFromSetup()">Add</button>
+      </div>
+    </div>
+
+    <div class="field" id="plans-field">
+      <label>Conversation Plan (optional)</label>
+      <div class="plans-list" id="setup-plans-list"></div>
+      <p id="no-plans-msg" style="font-size:0.82rem;color:var(--text-dim);">No plans for today. Create one in the Plans tab.</p>
+    </div>
+
+    <button class="btn-primary" id="start-conv-btn" onclick="startConversation()">Start Recording</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     LIVE CONVERSATION SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-conversation">
+
+  <!-- Header bar -->
+  <div class="conv-header">
+    <div class="conv-meta">
+      <div class="conv-people" id="conv-people-tags"></div>
+      <div class="conv-location" id="conv-location-tag">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        <span id="conv-location-name">—</span>
+      </div>
+    </div>
+    <div class="rec-indicator" id="rec-indicator">
+      <span class="rec-dot"></span>
+      <span id="rec-label">Recording</span>
+    </div>
+  </div>
+
+  <!-- Speaker confirmation banner -->
+  <div class="speaker-confirm-banner" id="speaker-confirm-banner">
+    <span id="speaker-confirm-msg"></span>
+    <button onclick="confirmSpeaker(true)">Yes, that's right</button>
+    <button onclick="confirmSpeaker(false)">No</button>
+  </div>
+
+  <!-- Main body: transcript + prompts -->
+  <div class="conv-body">
+
+    <!-- Left: Transcript -->
+    <div class="transcript-panel">
+      <div class="transcript-header">Live Transcript</div>
+
+      <!-- Plan panel -->
+      <div class="plan-panel" id="plan-panel" style="display:none;">
+        <div class="plan-panel-header" onclick="togglePlanPanel()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
+          <span id="plan-panel-title">Conversation Plan</span>
+          <span id="plan-panel-toggle">▸</span>
+        </div>
+        <div class="plan-panel-body">
+          <ul class="plan-checklist" id="plan-checklist"></ul>
+        </div>
+      </div>
+
+      <div class="transcript-scroll" id="transcript-scroll"></div>
+    </div>
+
+    <!-- Right: Prompts -->
+    <div class="prompts-panel">
+      <div class="prompts-header">
+        <span>Suggested things to say</span>
+        <div class="prompts-loading" id="prompts-loading">
+          <div class="spinner"></div>
+          <span>Thinking…</span>
+        </div>
+      </div>
+      <div class="prompts-scroll" id="prompts-scroll">
+        <div class="no-prompts-msg" id="no-prompts-msg">
+          <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <p>Suggestions will appear here once the conversation starts.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom action bar -->
+  <div class="conv-bottom">
+    <div class="text-input-row">
+      <textarea id="text-input" rows="1" placeholder="Type something to say… (or click a suggestion above)" oninput="autoResize(this)"></textarea>
+      <button class="speak-btn" onclick="speakTextInput()">Speak</button>
+    </div>
+    <div class="action-btns">
+      <button class="action-btn pause-btn" id="pause-btn" onclick="toggleRecording()">⏸ Pause</button>
+      <button class="action-btn" onclick="refreshPrompts()">↺ Refresh prompts</button>
+      <button class="action-btn" onclick="askNamePrompt()">❓ Ask their name</button>
+      <button class="action-btn" onclick="openSaveNoteModal()">📝 Save note</button>
+      <button class="action-btn danger" onclick="endConversation()">■ End conversation</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PEOPLE SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-people">
+  <div class="screen-header">
+    <h2>People</h2>
+    <input type="text" class="search-input" placeholder="Search people…" oninput="filterPeople(this.value)" />
+    <button class="btn-add" onclick="openPersonModal()">+ Add person</button>
+  </div>
+  <div class="people-grid" id="people-grid"></div>
+
+  <!-- Person detail slide-in -->
+  <div class="person-detail" id="person-detail">
+    <div class="detail-header">
+      <div class="person-avatar" id="detail-avatar" style="width:48px;height:48px;font-size:1.2rem;"></div>
+      <div>
+        <div style="font-weight:700;font-size:1.1rem;" id="detail-name"></div>
+        <div style="font-size:0.8rem;color:var(--text-muted);" id="detail-rel"></div>
+      </div>
+      <button class="detail-close" onclick="closePersonDetail()" aria-label="Close">✕</button>
+    </div>
+    <div class="detail-body">
+      <div class="detail-section">
+        <h3>Notes</h3>
+        <p id="detail-notes" style="font-size:0.9rem;color:var(--text-muted);"></p>
+      </div>
+      <div class="detail-section">
+        <h3>Memories</h3>
+        <div id="detail-memories"></div>
+      </div>
+      <div class="detail-section">
+        <h3>Past Conversations</h3>
+        <div id="detail-conversations"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn-secondary" style="flex:1;" onclick="editCurrentPerson()">Edit</button>
+        <button class="btn-secondary" style="flex:1;border-color:var(--red);color:var(--red);" onclick="deleteCurrentPerson()">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MEMORIES SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-memories">
+  <div class="screen-header">
+    <h2>Memories</h2>
+    <input type="text" class="search-input" placeholder="Search memories…" oninput="filterMemories(this.value)" />
+    <button class="btn-add" onclick="openAddMemoryModal()">+ Add memory</button>
+  </div>
+  <div class="memories-filter-bar" id="memories-filter-bar">
+    <button class="filter-chip active" data-filter="all" onclick="setMemoryFilter('all', this)">All</button>
+    <button class="filter-chip" data-filter="unreviewed" onclick="setMemoryFilter('unreviewed', this)">Review queue</button>
+    <button class="filter-chip" data-filter="personal_fact" onclick="setMemoryFilter('personal_fact', this)">Facts</button>
+    <button class="filter-chip" data-filter="follow_up" onclick="setMemoryFilter('follow_up', this)">Follow-ups</button>
+    <button class="filter-chip" data-filter="preference" onclick="setMemoryFilter('preference', this)">Preferences</button>
+    <button class="filter-chip" data-filter="open_issue" onclick="setMemoryFilter('open_issue', this)">Open issues</button>
+  </div>
+  <div class="memories-content" id="memories-content"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     HISTORY SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-history">
+  <div class="screen-header">
+    <h2>Conversation History</h2>
+    <input type="text" class="search-input" placeholder="Search conversations…" id="history-search" oninput="searchHistory(this.value)" />
+  </div>
+  <div class="history-list" id="history-list"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PLANS SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-plans">
+  <div class="screen-header">
+    <h2>Conversation Plans</h2>
+    <button class="btn-add" onclick="openPlanModal()">+ New plan</button>
+  </div>
+  <div class="plans-content" id="plans-content"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SETTINGS SCREEN
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-settings">
+  <div class="screen-header"><h2>Settings</h2></div>
+  <div class="settings-content">
+    <div class="settings-section">
+      <h3>Voice (ElevenLabs)</h3>
+      <div class="setting-row">
+        <div class="setting-label">
+          <strong>Voice</strong>
+          <span>The voice James uses to speak</span>
+        </div>
+        <div class="setting-control" style="display:flex;gap:8px;align-items:center;">
+          <select class="voice-select" id="voice-select" onchange="saveVoiceSetting()">
+            <option value="">Loading voices…</option>
+          </select>
+          <button class="preview-btn" onclick="previewVoice()">Preview</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">
+          <strong>Fallback to browser TTS</strong>
+          <span>If ElevenLabs is unavailable, use your browser's built-in voice</span>
+        </div>
+        <div class="setting-control">
+          <input type="checkbox" id="browser-tts-fallback" checked style="width:18px;height:18px;cursor:pointer;" />
+        </div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>Audio</h3>
+      <div class="setting-row">
+        <div class="setting-label">
+          <strong>Chunk size (seconds)</strong>
+          <span>How often audio is sent for transcription</span>
+        </div>
+        <div class="setting-control">
+          <select class="voice-select" id="chunk-size-select" style="min-width:100px;">
+            <option value="2">2s</option>
+            <option value="3" selected>3s</option>
+            <option value="5">5s</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>About</h3>
+      <div class="setting-row">
+        <div class="setting-label">
+          <strong>AAC Copilot</strong>
+          <span>Version 1.0 — Built for James</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODALS
+════════════════════════════════════════════════════════════════════════════ -->
+
+<!-- Post-conversation summary modal -->
+<div class="modal-overlay" id="modal-summary">
+  <div class="modal" style="max-width:640px;">
+    <h2>Conversation ended</h2>
+    <div class="field">
+      <label>Summary</label>
+      <textarea id="summary-text" class="field" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px;font-size:0.9rem;" rows="3"></textarea>
+    </div>
+    <div id="memory-review-list" style="margin-top:16px;"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeSummaryModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit person modal -->
+<div class="modal-overlay" id="modal-person">
+  <div class="modal">
+    <h2 id="person-modal-title">Add Person</h2>
+    <input type="hidden" id="person-modal-id" />
+    <div class="field"><label>Name</label><input type="text" id="person-name-input" placeholder="e.g. Sarah" /></div>
+    <div class="field"><label>Relationship</label><input type="text" id="person-rel-input" placeholder="e.g. Librarian, Family friend…" /></div>
+    <div class="field"><label>Notes</label><textarea id="person-notes-input" rows="3" placeholder="Anything useful to remember about this person…" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;resize:vertical;"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-person')">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px;margin-top:0;" onclick="savePerson()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add memory modal -->
+<div class="modal-overlay" id="modal-add-memory">
+  <div class="modal">
+    <h2>Add Memory</h2>
+    <div class="field"><label>About person</label>
+      <select id="mem-person-select" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;">
+        <option value="">— nobody specific —</option>
+      </select>
+    </div>
+    <div class="field"><label>Memory</label><input type="text" id="mem-text-input" placeholder="e.g. Sarah's cat is named Molly" /></div>
+    <div class="field"><label>Type</label>
+      <select id="mem-type-select" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;">
+        <option value="personal_fact">Personal fact</option>
+        <option value="preference">Preference</option>
+        <option value="follow_up">Follow-up</option>
+        <option value="location_routine">Location routine</option>
+        <option value="conversation_topic">Conversation topic</option>
+        <option value="open_issue">Open issue</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-add-memory')">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px;margin-top:0;" onclick="saveNewMemory()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Plan modal -->
+<div class="modal-overlay" id="modal-plan">
+  <div class="modal" style="max-width:640px;">
+    <h2 id="plan-modal-title">New Conversation Plan</h2>
+    <input type="hidden" id="plan-modal-id" />
+    <div class="field"><label>Title</label><input type="text" id="plan-title-input" placeholder="e.g. Meeting Robert" /></div>
+    <div class="field"><label>Date (optional)</label><input type="datetime-local" id="plan-date-input" style="background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;width:100%;" /></div>
+    <div class="field"><label>Location</label><input type="text" id="plan-location-input" placeholder="e.g. Robert's house" /></div>
+    <div class="field"><label>Tone</label>
+      <select id="plan-tone-input" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;">
+        <option value="friendly">Friendly</option>
+        <option value="relaxed">Relaxed</option>
+        <option value="curious">Curious</option>
+        <option value="formal">Formal</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Topics</label>
+      <div class="chip-list" id="plan-topics-chips">
+        <input class="chip-input" id="plan-topics-input" placeholder="Type a topic and press Enter…" onkeydown="addChip('topics', event)" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Things I want to say</label>
+      <div class="chip-list" id="plan-say-chips">
+        <input class="chip-input" id="plan-say-input" placeholder="Type something and press Enter…" onkeydown="addChip('say', event)" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Questions I want to ask</label>
+      <div class="chip-list" id="plan-ask-chips">
+        <input class="chip-input" id="plan-ask-input" placeholder="Type a question and press Enter…" onkeydown="addChip('ask', event)" />
+      </div>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="plan-notes-input" rows="2" placeholder="Any other notes…" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;resize:vertical;"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-plan')">Cancel</button>
+      <button class="btn-secondary" onclick="previewPlan()" id="plan-preview-btn">Preview prompts</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px;margin-top:0;" onclick="savePlan()">Save plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Save note modal -->
+<div class="modal-overlay" id="modal-save-note">
+  <div class="modal">
+    <h2>Save a note</h2>
+    <div class="field"><label>Memory text</label><input type="text" id="note-text-input" placeholder="What do you want to remember?" /></div>
+    <div class="field"><label>About</label>
+      <select id="note-person-select" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:0.9rem;">
+        <option value="">— nobody specific —</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-save-note')">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px;margin-top:0;" onclick="saveNote()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Speaker label modal -->
+<div class="modal-overlay" id="modal-speaker-label">
+  <div class="modal">
+    <h2>Who is speaking?</h2>
+    <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:16px;">Label <strong id="label-speaker-name"></strong> as:</p>
+    <div id="label-existing-people" style="margin-bottom:12px;"></div>
+    <div class="field">
+      <label>Or add a new person</label>
+      <input type="text" id="label-new-name" placeholder="Type their name…" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-speaker-label')">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px;margin-top:0;" onclick="saveSpeakerLabel()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- Hidden audio element for TTS playback -->
+<audio id="tts-audio" style="display:none;"></audio>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
