@@ -1,7 +1,7 @@
 import json
 import re
 from datetime import datetime
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -44,11 +44,6 @@ Rules:
 - If nothing memorable happened, return empty memories array
 """
 
-SUMMARY_SYSTEM = """You are summarising a conversation for James, a non-verbal man with cerebral palsy who uses an AAC copilot app.
-
-Write a 2-3 sentence summary of what was discussed, who was there, and what happened. Keep it plain and factual.
-Focus on what would be useful for James to remember next time he sees these people."""
-
 
 async def extract_memories_for_conversation(conversation_id: int) -> list[Memory]:
     """
@@ -60,7 +55,6 @@ async def extract_memories_for_conversation(conversation_id: int) -> list[Memory
         if not conv:
             return []
 
-        # Get full transcript
         seg_result = await db.execute(
             select(TranscriptSegment)
             .where(TranscriptSegment.conversation_id == conversation_id)
@@ -78,44 +72,40 @@ async def extract_memories_for_conversation(conversation_id: int) -> list[Memory
             if person:
                 people_map[person.name.lower()] = person.id
 
-        # Build transcript text
         transcript_lines = []
         for seg in segments:
             ts = seg.timestamp.strftime("%H:%M")
             transcript_lines.append(f"[{ts}] {seg.speaker_label}: {seg.text}")
         transcript_text = "\n".join(transcript_lines)
 
-        if not settings.anthropic_api_key:
+        if not settings.openai_api_key:
             return []
 
-        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
 
-        # Extract memories
-        response = await client.messages.create(
-            model=settings.claude_model,
+        response = await client.chat.completions.create(
+            model=settings.openai_chat_model,
             max_tokens=1000,
-            system=MEMORY_EXTRACTION_SYSTEM,
-            messages=[{"role": "user", "content": f"Conversation transcript:\n{transcript_text}"}],
+            messages=[
+                {"role": "system", "content": MEMORY_EXTRACTION_SYSTEM},
+                {"role": "user", "content": f"Conversation transcript:\n{transcript_text}"},
+            ],
         )
 
-        raw = response.content[0].text if response.content else ""
-
+        raw = response.choices[0].message.content or ""
         extracted = _parse_extraction(raw)
         summary = extracted.get("summary", "")
         raw_memories = extracted.get("memories", [])
 
-        # Save summary to conversation
         if summary:
             conv.summary = summary
             await db.commit()
 
-        # Save memories
         created = []
         for item in raw_memories[:10]:
             person_id = None
             person_name = (item.get("person_name") or "").lower()
             if person_name:
-                # Fuzzy match on name
                 for name_key, pid in people_map.items():
                     if person_name in name_key or name_key in person_name:
                         person_id = pid
@@ -157,7 +147,6 @@ async def get_relevant_memories(
     db: AsyncSession,
     limit: int = 10,
 ) -> list[Memory]:
-    """Fetch the most relevant memories for a set of people and a location."""
     q = select(Memory).where(
         (Memory.person_id.in_(person_ids)) | (Memory.location_id == location_id)
         if location_id else Memory.person_id.in_(person_ids)

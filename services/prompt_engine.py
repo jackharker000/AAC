@@ -1,12 +1,12 @@
 import json
 import re
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from config import get_settings
 from services.context_engine import ContextPacket
 from schemas import PromptSuggestion
 
 settings = get_settings()
-_client: AsyncAnthropic | None = None
+_client: AsyncOpenAI | None = None
 
 JAMES_SYSTEM_PROMPT = """You are an AAC (Augmentative and Alternative Communication) copilot helping James — a 44-year-old non-verbal man with cerebral palsy — participate in real-time conversation.
 
@@ -40,10 +40,10 @@ Rules:
 """
 
 
-def _get_client() -> AsyncAnthropic:
+def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        _client = AsyncOpenAI(api_key=settings.openai_api_key)
     return _client
 
 
@@ -58,7 +58,7 @@ def _build_user_message(context: ContextPacket) -> str:
         names = ", ".join(p["name"] for p in context.people)
         parts.append(f"People present: {names}")
         for p in context.people:
-            desc = p.get("relationship", "")
+            desc = p.get("relation", "")
             notes = p.get("notes", "")
             line = f"  - {p['name']}"
             if desc:
@@ -102,12 +102,9 @@ def _build_user_message(context: ContextPacket) -> str:
 
 
 def _parse_suggestions(raw: str) -> list[PromptSuggestion]:
-    """Extract JSON array from Claude response, even if there's surrounding text."""
-    # Find the first [...] in the response
     match = re.search(r'\[.*?\]', raw, re.DOTALL)
     if not match:
         return _fallback_suggestions()
-
     try:
         items = json.loads(match.group())
         suggestions = []
@@ -132,18 +129,20 @@ def _fallback_suggestions() -> list[PromptSuggestion]:
 
 
 async def generate_prompts(context: ContextPacket) -> list[PromptSuggestion]:
-    if not settings.anthropic_api_key:
+    if not settings.openai_api_key:
         return _fallback_suggestions()
 
     client = _get_client()
     user_message = _build_user_message(context)
 
-    message = await client.messages.create(
-        model=settings.claude_model,
+    response = await client.chat.completions.create(
+        model=settings.openai_chat_model,
         max_tokens=400,
-        system=JAMES_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        messages=[
+            {"role": "system", "content": JAMES_SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
     )
 
-    raw = message.content[0].text if message.content else ""
+    raw = response.choices[0].message.content or ""
     return _parse_suggestions(raw)
