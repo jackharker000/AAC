@@ -84,15 +84,22 @@ async def websocket_endpoint(conv_id: int, websocket: WebSocket):
             msg = await websocket.receive()
 
             if msg["type"] == "websocket.receive":
-                if "bytes" in msg and msg["bytes"]:
-                    mime = _ws_mime.get(ws_id, "")
-                    await _handle_audio_chunk(conv_id, msg["bytes"], websocket, mime)
-                elif "text" in msg and msg["text"]:
+                if "text" in msg and msg["text"]:
                     try:
                         data = json.loads(msg["text"])
-                        await _handle_control_message(conv_id, data, websocket, ws_id)
-                    except json.JSONDecodeError:
+                        if data.get("action") == "audio_chunk":
+                            import base64
+                            audio_bytes = base64.b64decode(data["data"])
+                            mime_type = data.get("mime_type", "")
+                            await _handle_audio_chunk(conv_id, audio_bytes, websocket, mime_type)
+                        else:
+                            await _handle_control_message(conv_id, data, websocket, ws_id)
+                    except (json.JSONDecodeError, KeyError, Exception):
                         pass
+                elif "bytes" in msg and msg["bytes"]:
+                    # Legacy binary path (fallback)
+                    mime = _ws_mime.get(ws_id, "")
+                    await _handle_audio_chunk(conv_id, msg["bytes"], websocket, mime)
 
     except WebSocketDisconnect:
         manager.disconnect(conv_id, websocket)

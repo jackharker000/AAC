@@ -293,11 +293,7 @@ function connectWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${protocol}://${location.host}/ws/${state.conversationId}`);
 
-  ws.onopen = () => {
-    state.ws = ws;
-    // Tell the server what audio format this browser produces
-    ws.send(JSON.stringify({ action: 'set_mime_type', mime_type: getSupportedMimeType() }));
-  };
+  ws.onopen = () => { state.ws = ws; };
 
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
@@ -329,13 +325,24 @@ async function startRecording() {
 
     const chunkMs = (parseInt(document.getElementById('chunk-size-select')?.value) || 3) * 1000;
 
-    const mr = new MediaRecorder(stream, { mimeType: getSupportedMimeType() });
+    const mimeType = getSupportedMimeType();
+    const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
     state.mediaRecorder = mr;
+    state.mimeType = mr.mimeType || mimeType || 'audio/mp4';
 
     mr.addEventListener('dataavailable', async (e) => {
-      if (e.data && e.data.size > 500 && state.ws && state.ws.readyState === WebSocket.OPEN) {
-        const ab = await e.data.arrayBuffer();
-        state.ws.send(ab);
+      if (e.data && e.data.size > 100 && state.ws && state.ws.readyState === WebSocket.OPEN) {
+        // Send MIME type alongside audio data so there is no race condition
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result.split(',')[1];
+          state.ws.send(JSON.stringify({
+            action: 'audio_chunk',
+            mime_type: state.mimeType,
+            data: base64,
+          }));
+        };
+        reader.readAsDataURL(e.data);
       }
     });
 
