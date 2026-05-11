@@ -201,6 +201,14 @@ async def get_prompts(conv_id: int, plan_id: int | None = None, db: AsyncSession
     return await generate_prompts(context)
 
 
+# ── TTS availability check ───────────────────────────────────────────────────
+
+@app.get("/tts/available")
+async def tts_available():
+    from services.tts_service import elevenlabs_available
+    return {"available": elevenlabs_available()}
+
+
 # ── ElevenLabs voice list ─────────────────────────────────────────────────────
 
 @app.get("/tts/voices")

@@ -24,10 +24,19 @@ const state = {
   pendingMemories: [],          // unconfirmed memories after conversation end
   currentMemoryFilter: 'all',
   selectedVoiceId: localStorage.getItem('elevenlabs_voice_id') || '',
+  elevenLabsAvailable: false,  // set on startup from /tts/available
 };
 
 // ── Initialisation ────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check ElevenLabs availability once on startup
+  try {
+    const res = await fetch('/tts/available');
+    const data = await res.json();
+    state.elevenLabsAvailable = data.available;
+  } catch (e) {
+    state.elevenLabsAvailable = false;
+  }
   loadSetupData();
   loadVoices();
   showScreen('setup');
@@ -563,6 +572,12 @@ async function speakTextInput() {
 }
 
 async function speakText(text) {
+  // Skip ElevenLabs entirely if not configured — go straight to browser TTS
+  if (!state.elevenLabsAvailable) {
+    browserSpeak(text);
+    return;
+  }
+
   const audioEl = document.getElementById('tts-audio');
   const voiceId = state.selectedVoiceId;
 
@@ -579,14 +594,16 @@ async function speakText(text) {
     await audioEl.play();
     audioEl.onended = () => URL.revokeObjectURL(url);
   } catch (e) {
-    // Fallback to browser TTS
-    const useFallback = document.getElementById('browser-tts-fallback')?.checked !== false;
-    if (useFallback && 'speechSynthesis' in window) {
-      const utt = new SpeechSynthesisUtterance(text);
-      utt.rate = 0.95;
-      window.speechSynthesis.speak(utt);
-    }
+    browserSpeak(text);
   }
+}
+
+function browserSpeak(text) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.rate = 0.95;
+  window.speechSynthesis.speak(utt);
 }
 
 async function refreshPrompts() {
@@ -1407,10 +1424,18 @@ async function previewPlan() {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function loadVoices() {
+  const sel = document.getElementById('voice-select');
+  if (!sel) return;
+
+  if (!state.elevenLabsAvailable) {
+    sel.innerHTML = '<option value="">ElevenLabs not configured — using browser voice</option>';
+    sel.disabled = true;
+    document.getElementById('voice-section')?.classList.add('tts-unavailable');
+    return;
+  }
+
   try {
     const data = await api('GET', '/tts/voices');
-    const sel = document.getElementById('voice-select');
-    if (!sel) return;
     sel.innerHTML = '<option value="">— select a voice —</option>';
     (data.voices || []).forEach(v => {
       const opt = document.createElement('option');
@@ -1420,7 +1445,7 @@ async function loadVoices() {
       sel.appendChild(opt);
     });
     if (!data.voices?.length) {
-      sel.innerHTML = '<option value="">No voices available — check API key</option>';
+      sel.innerHTML = '<option value="">No voices found — check ElevenLabs API key</option>';
     }
   } catch (e) { /* silent */ }
 }
