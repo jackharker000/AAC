@@ -314,7 +314,7 @@ function connectWebSocket() {
   };
 }
 
-// ── Audio recording ───────────────────────────────────────────────────────────
+// ── Audio recording (Web Audio API → WAV — works on all browsers including Safari) ──
 async function startRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -323,52 +323,78 @@ async function startRecording() {
     state.isPaused = false;
     updateRecIndicator();
 
-    const chunkMs = (parseInt(document.getElementById('chunk-size-select')?.value) || 3) * 1000;
+    const chunkSeconds = parseInt(document.getElementById('chunk-size-select')?.value) || 3;
+    const sampleRate = 16000;
 
-    const mimeType = getSupportedMimeType();
-    const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-    state.mediaRecorder = mr;
-    state.mimeType = mr.mimeType || mimeType || 'audio/mp4';
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx({ sampleRate });
+    const source = audioCtx.createMediaStreamSource(stream);
+    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
 
-    mr.addEventListener('dataavailable', async (e) => {
-      if (e.data && e.data.size > 100 && state.ws && state.ws.readyState === WebSocket.OPEN) {
-        // Send MIME type alongside audio data so there is no race condition
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result.split(',')[1];
-          state.ws.send(JSON.stringify({
-            action: 'audio_chunk',
-            mime_type: state.mimeType,
-            data: base64,
-          }));
-        };
-        reader.readAsDataURL(e.data);
+    let pcmSamples = [];
+    const samplesPerChunk = sampleRate * chunkSeconds;
+
+    processor.onaudioprocess = (e) => {
+      if (state.isPaused) return;
+      const input = e.inputBuffer.getChannelData(0);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        pcmSamples.push(s < 0 ? s * 0x8000 : s * 0x7FFF);
       }
-    });
+      if (pcmSamples.length >= samplesPerChunk) {
+        const chunk = pcmSamples.splice(0, samplesPerChunk);
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          const wav = _encodeWAV(chunk, sampleRate);
+          const b64 = _arrayBufferToBase64(wav);
+          state.ws.send(JSON.stringify({ action: 'audio_chunk', mime_type: 'audio/wav', data: b64 }));
+        }
+      }
+    };
 
-    mr.addEventListener('stop', () => {
-      stream.getTracks().forEach(t => t.stop());
-    });
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
 
-    mr.start(chunkMs);
+    // Expose a stop/pause/resume shim so the rest of the code works unchanged
+    state.mediaRecorder = {
+      stop() {
+        processor.disconnect();
+        source.disconnect();
+        audioCtx.close();
+        stream.getTracks().forEach(t => t.stop());
+      },
+      pause()  { state.isPaused = true; },
+      resume() { state.isPaused = false; },
+    };
   } catch (e) {
     toast('Microphone access denied or unavailable: ' + e.message, 'error');
     throw e;
   }
 }
 
-function getSupportedMimeType() {
-  const types = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/mp4;codecs=aac',
-    'audio/mp4',
-  ];
-  for (const t of types) {
-    if (MediaRecorder.isTypeSupported(t)) return t;
-  }
-  return 'audio/mp4'; // Safari fallback
+function _encodeWAV(samples, sampleRate) {
+  const dataBytes = samples.length * 2;
+  const buf = new ArrayBuffer(44 + dataBytes);
+  const v = new DataView(buf);
+  const ws = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  ws(0,  'RIFF'); v.setUint32(4,  36 + dataBytes, true);
+  ws(8,  'WAVE'); ws(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1,          true); // PCM
+  v.setUint16(22, 1,          true); // mono
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true); // byte rate
+  v.setUint16(32, 2,          true); // block align
+  v.setUint16(34, 16,         true); // bits per sample
+  ws(36, 'data'); v.setUint32(40, dataBytes, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) { v.setInt16(off, samples[i], true); off += 2; }
+  return buf;
+}
+
+function _arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }
 
 function toggleRecording() {
