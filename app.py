@@ -1,8 +1,10 @@
+from __future__ import annotations
 import asyncio
 import json
 import io
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse, Response
@@ -193,7 +195,7 @@ async def text_to_speech(request: TTSRequest):
 # ── Prompt generation endpoint (non-WebSocket fallback) ───────────────────────
 
 @app.get("/conversations/{conv_id}/prompts", response_model=list[PromptSuggestion])
-async def get_prompts(conv_id: int, plan_id: int | None = None, db: AsyncSession = Depends(get_db)):
+async def get_prompts(conv_id: int, plan_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
     from services.context_engine import build_context_packet
     from services.prompt_engine import generate_prompts
 

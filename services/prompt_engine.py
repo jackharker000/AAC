@@ -1,12 +1,13 @@
 import json
 import re
+from typing import Optional
 from openai import AsyncOpenAI
 from config import get_settings
 from services.context_engine import ContextPacket
 from schemas import PromptSuggestion
 
 settings = get_settings()
-_client: AsyncOpenAI | None = None
+_client: Optional[AsyncOpenAI] = None
 
 JAMES_SYSTEM_PROMPT = """You are an AAC (Augmentative and Alternative Communication) copilot helping James — a 44-year-old non-verbal man with cerebral palsy — participate in real-time conversation.
 

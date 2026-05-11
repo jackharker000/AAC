@@ -4,7 +4,7 @@ from config import get_settings
 settings = get_settings()
 
 # Cached auto-selected voice ID (used when ELEVENLABS_VOICE_ID is not set)
-_auto_voice_id: str | None = None
+_auto_voice_id: Optional[str] = None
 
 
 def elevenlabs_available() -> bool:

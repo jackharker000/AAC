@@ -1,6 +1,8 @@
+from __future__ import annotations
 import json
 import re
 from datetime import datetime
+from typing import Optional
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -143,7 +145,7 @@ def _parse_extraction(raw: str) -> dict:
 
 async def get_relevant_memories(
     person_ids: list[int],
-    location_id: int | None,
+    location_id: Optional[int],
     db: AsyncSession,
     limit: int = 10,
 ) -> list[Memory]:
