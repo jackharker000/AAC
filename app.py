@@ -71,31 +71,35 @@ manager = ConnectionManager()
 
 # Debounce state per conversation: track segment count at last prompt refresh
 _last_prompt_refresh: dict[int, int] = {}
+# MIME type reported by each WebSocket client (keyed by websocket id)
+_ws_mime: dict[int, str] = {}
 
 
 @app.websocket("/ws/{conv_id}")
 async def websocket_endpoint(conv_id: int, websocket: WebSocket):
     await manager.connect(conv_id, websocket)
+    ws_id = id(websocket)
     try:
         while True:
-            # Receive either binary audio or JSON control messages
             msg = await websocket.receive()
 
             if msg["type"] == "websocket.receive":
                 if "bytes" in msg and msg["bytes"]:
-                    await _handle_audio_chunk(conv_id, msg["bytes"], websocket)
+                    mime = _ws_mime.get(ws_id, "")
+                    await _handle_audio_chunk(conv_id, msg["bytes"], websocket, mime)
                 elif "text" in msg and msg["text"]:
                     try:
                         data = json.loads(msg["text"])
-                        await _handle_control_message(conv_id, data, websocket)
+                        await _handle_control_message(conv_id, data, websocket, ws_id)
                     except json.JSONDecodeError:
                         pass
 
     except WebSocketDisconnect:
         manager.disconnect(conv_id, websocket)
+        _ws_mime.pop(ws_id, None)
 
 
-async def _handle_audio_chunk(conv_id: int, audio_bytes: bytes, websocket: WebSocket):
+async def _handle_audio_chunk(conv_id: int, audio_bytes: bytes, websocket: WebSocket, mime_type: str = ""):
     """Transcribe audio chunk and push transcript + prompts back to client."""
     from services.transcription import transcribe_audio
     from database import AsyncSessionLocal
@@ -103,7 +107,7 @@ async def _handle_audio_chunk(conv_id: int, audio_bytes: bytes, websocket: WebSo
     from sqlalchemy import select, func
 
     try:
-        text = await transcribe_audio(audio_bytes)
+        text = await transcribe_audio(audio_bytes, mime_type)
         if not text or not text.strip():
             return
 
@@ -144,10 +148,13 @@ async def _handle_audio_chunk(conv_id: int, audio_bytes: bytes, websocket: WebSo
         await websocket.send_json({"type": "error", "message": str(e)})
 
 
-async def _handle_control_message(conv_id: int, data: dict, websocket: WebSocket):
+async def _handle_control_message(conv_id: int, data: dict, websocket: WebSocket, ws_id: int = 0):
     action = data.get("action")
 
-    if action == "refresh_prompts":
+    if action == "set_mime_type":
+        _ws_mime[ws_id] = data.get("mime_type", "")
+
+    elif action == "refresh_prompts":
         await _push_prompts(conv_id, websocket)
 
     elif action == "name_detected":

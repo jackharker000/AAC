@@ -293,7 +293,11 @@ function connectWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${protocol}://${location.host}/ws/${state.conversationId}`);
 
-  ws.onopen = () => { state.ws = ws; };
+  ws.onopen = () => {
+    state.ws = ws;
+    // Tell the server what audio format this browser produces
+    ws.send(JSON.stringify({ action: 'set_mime_type', mime_type: getSupportedMimeType() }));
+  };
 
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
@@ -347,11 +351,17 @@ async function startRecording() {
 }
 
 function getSupportedMimeType() {
-  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/mp4;codecs=aac',
+    'audio/mp4',
+  ];
   for (const t of types) {
     if (MediaRecorder.isTypeSupported(t)) return t;
   }
-  return '';
+  return 'audio/mp4'; // Safari fallback
 }
 
 function toggleRecording() {
